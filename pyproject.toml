@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ascii-player"
+version = "0.1.0"
+description = "A fast, flicker-free terminal ASCII video player powered by PyAV and Rich."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "OpticsValley" }]
+dependencies = [
+    "av>=13.1,<16",
+    "numpy>=2.1,<3",
+    "Pillow>=11,<13",
+    "rich>=13.9,<15",
+    "typer>=0.15,<1",
+    "colorama>=0.4.6,<1",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video :: Display",
+]
+
+[project.scripts]
+ascii-player = "cli.commands:app"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8,<1",
+]
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["ascii*", "cli*", "config*", "player*", "terminal*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
