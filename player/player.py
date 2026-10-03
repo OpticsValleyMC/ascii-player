@@ -22,6 +22,21 @@ class _PlaybackState:
     replay: bool = False
 
 
+@dataclass(slots=True)
+class _PlaybackClock:
+    """Map elapsed wall time to media time, preserving position across controls."""
+
+    clock_anchor: float
+    media_anchor: float = 0.0
+    speed: float = 1.0
+    paused: bool = False
+
+    def position(self, now: float) -> float:
+        if self.paused:
+            return self.media_anchor
+        return self.media_anchor + max(0.0, now - self.clock_anchor) * self.speed
+
+
 class VideoPlayer:
     """Stream, convert, render, and interact against a monotonic clock."""
 
@@ -58,10 +73,7 @@ class VideoPlayer:
                 state.replay = False
                 state.paused = False
                 decoder.seek(0)
-                if info.has_audio:
-                    audio.start(0, state.speed)
-
-                last_frame, last_position = self._play_once(
+                self._play_once(
                     decoder,
                     info,
                     converter,
@@ -89,7 +101,7 @@ class VideoPlayer:
         audio: AudioPlayer,
         state: _PlaybackState,
     ) -> tuple[ConvertedFrame | None, float]:
-        start_clock = self._clock()
+        timeline: _PlaybackClock | None = None
         first_timestamp: float | None = None
         next_sample = 0.0
         sample_interval = 1 / self.settings.fps if self.settings.fps else None
@@ -99,15 +111,19 @@ class VideoPlayer:
         for decoded in decoder.frames():
             if first_timestamp is None:
                 first_timestamp = decoded.timestamp
+                if info.has_audio:
+                    audio.start(0, state.speed)
+                timeline = _PlaybackClock(self._clock(), speed=state.speed)
             media_time = max(0.0, decoded.timestamp - first_timestamp)
+            assert timeline is not None
 
             if sample_interval is not None:
                 if media_time + 1e-9 < next_sample:
                     continue
                 next_sample = media_time + sample_interval
 
-            start_clock, should_render = self._wait_for_media_time(
-                start_clock,
+            should_render = self._wait_for_media_time(
+                timeline,
                 media_time,
                 info,
                 renderer,
@@ -143,7 +159,7 @@ class VideoPlayer:
 
     def _wait_for_media_time(
         self,
-        start_clock: float,
+        timeline: _PlaybackClock,
         media_time: float,
         info: VideoInfo,
         renderer: TerminalRenderer,
@@ -151,33 +167,38 @@ class VideoPlayer:
         audio: AudioPlayer,
         state: _PlaybackState,
         last_frame: ConvertedFrame | None,
-    ) -> tuple[float, bool]:
+    ) -> bool:
         """Wait responsively while processing playback control keys."""
         while True:
             action = keyboard.poll()
             if action is not None:
+                position = timeline.position(self._clock())
                 old_paused = state.paused
+                old_speed = state.speed
                 self._apply_action(action, state)
-                now = self._clock()
 
                 if state.quit or state.replay:
                     audio.stop()
-                    return start_clock, False
+                    return False
                 if state.paused and not old_paused:
                     audio.stop()
                 elif not state.paused and old_paused:
-                    start_clock = now - media_time / state.speed
                     if info.has_audio:
-                        audio.start(media_time, state.speed)
-                elif action in {Action.FASTER, Action.SLOWER}:
-                    start_clock = now - media_time / state.speed
-                    if info.has_audio and not state.paused:
-                        audio.restart(media_time, state.speed)
+                        audio.start(position, state.speed)
+                elif state.speed != old_speed and info.has_audio and not state.paused:
+                    audio.restart(position, state.speed)
+
+                if state.paused != old_paused or state.speed != old_speed:
+                    # Process teardown/startup can block; freeze media time during it.
+                    timeline.media_anchor = position
+                    timeline.clock_anchor = self._clock()
+                    timeline.speed = state.speed
+                    timeline.paused = state.paused
 
                 if last_frame is not None:
                     renderer.render_status(
                         last_frame,
-                        position=media_time,
+                        position=position,
                         duration=info.duration,
                         speed=state.speed,
                         paused=state.paused,
@@ -188,10 +209,10 @@ class VideoPlayer:
                 self._sleep(0.02)
                 continue
 
-            delay = start_clock + media_time / state.speed - self._clock()
+            delay = (media_time - timeline.position(self._clock())) / state.speed
             if delay <= 0:
                 # Skip badly late video frames; ffplay remains the audible timeline.
-                return start_clock, delay >= -0.25
+                return delay >= -0.25
             self._sleep(min(delay, 0.02))
 
     @staticmethod

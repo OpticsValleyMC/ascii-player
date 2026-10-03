@@ -235,7 +235,11 @@ ascii-player/
 ```bash
 pip install -e ".[dev]"
 ruff check .
+python -m unittest discover -s tests -v
 ```
+
+回归测试使用 Python 标准库 `unittest`，通过模拟时钟和音频进程验证播放同步、
+跳帧和画面缓存，不需要真实终端、视频文件或 ffplay。
 
 性能会受到视频编码、终端窗口尺寸、颜色模式和终端渲染器影响。普通单色模式输出
 的数据量最小；TrueColor 和大窗口会生成更多 ANSI 控制序列。

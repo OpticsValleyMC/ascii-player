@@ -14,6 +14,7 @@ class TerminalRenderer:
     def __init__(self, console: Console) -> None:
         self.console = console
         self._live: Live | None = None
+        self._last_frame: ConvertedFrame | None = None
         self._layout = Layout()
         self._layout.split_column(
             Layout(name="header", size=1),
@@ -45,6 +46,7 @@ class TerminalRenderer:
         if self._live is not None:
             self._live.__exit__(exc_type, exc_value, traceback)
         self._live = None
+        self._last_frame = None
 
     @property
     def available_size(self) -> tuple[int, int]:
@@ -62,11 +64,13 @@ class TerminalRenderer:
     ) -> None:
         if self._live is None:
             raise RuntimeError("TerminalRenderer must be used as a context manager")
-        # Parsing ANSI into a Rich Text object keeps Live in control of cursor movement.
-        text = Text.from_ansi(frame.ansi)
-        text.no_wrap = True
-        text.overflow = "crop"
-        self._layout["video"].update(text)
+        # Status updates reuse the immutable frame already parsed into Rich Text.
+        if frame is not self._last_frame:
+            text = Text.from_ansi(frame.ansi)
+            text.no_wrap = True
+            text.overflow = "crop"
+            self._layout["video"].update(text)
+            self._last_frame = frame
         self._layout["footer"].update(
             Group(
                 Text(

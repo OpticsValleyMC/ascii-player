@@ -24,8 +24,16 @@ class VideoInfo:
 
 @dataclass(frozen=True, slots=True)
 class DecodedFrame:
-    rgb: np.ndarray
+    frame: av.VideoFrame
     timestamp: float
+
+    @property
+    def rgb(self) -> np.ndarray:
+        """Convert only frames selected for display to a full-resolution RGB array."""
+        try:
+            return self.frame.to_ndarray(format="rgb24")
+        except (av.error.FFmpegError, OSError) as exc:
+            raise DecoderError(f"Video frame conversion failed: {exc}") from exc
 
 
 class VideoDecoder:
@@ -89,8 +97,7 @@ class VideoDecoder:
                     timestamp = float(frame.pts * frame.time_base)
                 else:
                     timestamp = index / fallback_fps
-                # rgb24 is the only full-resolution copy in the hot path.
-                yield DecodedFrame(frame.to_ndarray(format="rgb24"), timestamp)
+                yield DecodedFrame(frame, timestamp)
         except (av.error.FFmpegError, OSError) as exc:
             raise DecoderError(f"Video decoding failed: {exc}") from exc
 
